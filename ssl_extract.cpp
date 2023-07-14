@@ -43,3 +43,26 @@ void generate_certificate(X509* cert) {
   }
   // X509_print_fp(stdout, cert); // Print certificate details to stdout
 }
+
+void output_ssl_certificate(BIO* bio) {
+  // cout << "bio_len: " << BIO_ctrl_pending(bio) << endl;
+  while (BIO_ctrl_pending(bio) > 0) {
+    // get the length of the certificate from bio
+    u_char* len_buf = new u_char[3];
+    int bytes_read_len = BIO_read(bio, len_buf, 3);
+    int cert_len = len_buf[0]*256*256 + len_buf[1]*256 + len_buf[2];
+    // get certificate payload from bio
+    unsigned char* cert_buf = new unsigned char[cert_len];
+    int bytes_read_payload = BIO_read(bio, len_buf, cert_len);
+    // create a new certificate using X509 library
+    const unsigned char* const_buf = cert_buf;
+    X509* cert = d2i_X509(NULL, &const_buf, cert_len);
+    // generate the certificate file
+    if (cert != nullptr) {
+      generate_certificate(cert);
+    }
+    delete[] len_buf;
+    delete[] cert_buf;
+  }
+  BIO_reset(bio);
+}
