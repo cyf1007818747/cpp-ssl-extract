@@ -1,3 +1,7 @@
+#define ETHERNET_HEADER_LEN 14
+#define SSL_HEADER_LEN 5
+#define HANDSHAKE_HEADER_LEN 7
+#define FILE_PATH "SSL.pcapng"
 #define OUTPUT_CERTIFICATE_PATH "certificates/"  // if no such folder, there will be error, such change it to empty string
 
 #include <iostream>
@@ -65,4 +69,68 @@ void output_ssl_certificate(BIO* bio) {
     delete[] cert_buf;
   }
   BIO_reset(bio);
+}
+
+void processPacket(const u_char* packet, int packetLength, int loop_num, BIO* bio, int & remained_cert_len) {
+  const struct ip* ipHeader = (struct ip*)(packet + ETHERNET_HEADER_LEN); // Skip Ethernet header
+  if ((int) ipHeader->ip_p != 6) return; // only proceed if the current protocol is TCP
+
+  const struct tcphdr* tcpHeader = (struct tcphdr*)(packet + ETHERNET_HEADER_LEN + ipHeader->ip_hl * 4); // Skip IP header
+  int source_port = *(packet + ETHERNET_HEADER_LEN + ipHeader->ip_hl * 4) * 256 + *(packet + ETHERNET_HEADER_LEN + ipHeader->ip_hl * 4 + 1);
+  if (source_port != 443) return; // only proceed if the current packet comes from source port 443, to filter SSL packets
+
+  int tcpHeaderLength = tcpHeader->th_off * 4;
+  int sslPacketLength = packetLength - ETHERNET_HEADER_LEN - ipHeader->ip_hl * 4 - tcpHeaderLength;
+  if (sslPacketLength <= 0) return; // another filter to filter SSL packets
+
+  const u_char* sslPacket;
+  sslPacket = packet + ETHERNET_HEADER_LEN + ipHeader->ip_hl * 4 + tcpHeaderLength;
+
+  if (remained_cert_len > 0) {
+    int buf_write_len = min(sslPacketLength, remained_cert_len);
+    BIO_write(bio, sslPacket + SSL_HEADER_LEN, buf_write_len);
+    remained_cert_len -= buf_write_len;
+    if (remained_cert_len <= 0) {
+      try { 
+        output_ssl_certificate(bio); 
+      } catch (const exception& ex) {
+        // Catch any exception and print the error message
+        cerr << "Error output_ssl_certificate() @ loop_num " << loop_num << ": " << ex.what() << endl;
+      }
+    }
+    return;
+  }
+
+  struct SSLPacketHeader* sslHeader = (struct SSLPacketHeader*) sslPacket;
+
+  if (sslHeader->type != 22) return; // only proceed if the type is a handshake type
+
+  int total_ssl_header_len = SSL_HEADER_LEN;
+  const u_char* handshakeTypePtr = sslPacket + SSL_HEADER_LEN;
+  int handshakeType = *handshakeTypePtr;
+  // cout << "reach place 2. loop_num: " << loop_num << ", handshakeType: " << handshakeType << endl;
+  int handshakePacLen = *(sslPacket + 3) * 256 + *(sslPacket + 4);
+  
+  if (handshakeType == 11) {
+    int certPayloadLen = *(handshakeTypePtr + 1) * 256 * 256 + *(handshakeTypePtr + 2) * 256 + *(handshakeTypePtr + 3) - 3;
+    total_ssl_header_len += HANDSHAKE_HEADER_LEN;
+    remained_cert_len = certPayloadLen;
+    u_char* certInitPtr = (u_char*) handshakeTypePtr + HANDSHAKE_HEADER_LEN;
+    // cout << "reach place 4. loop_num: " << loop_num << ", certInitPtr: " << *certInitPtr + 0 << ", certPayloadLen: " << certPayloadLen << endl;
+    // cout << "--- sslPacketLength: " << sslPacketLength << ", total_ssl_header_len: " << total_ssl_header_len << endl;
+    int cert_payload_len_in_curr_pac = sslPacketLength - total_ssl_header_len;
+    if (cert_payload_len_in_curr_pac > 0) {
+      int buf_write_len = min(cert_payload_len_in_curr_pac, remained_cert_len);
+      BIO_write(bio, certInitPtr, buf_write_len);
+      remained_cert_len -= buf_write_len;
+      if (remained_cert_len <= 0) {
+        try { 
+          output_ssl_certificate(bio); 
+        } catch (const std::exception& ex) {
+          // Catch any exception and print the error message
+          cerr << "Error output_ssl_certificate() @ loop_num " << loop_num << ": " << ex.what() << endl;
+        }
+      }
+    }
+  }
 }
