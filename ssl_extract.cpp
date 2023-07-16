@@ -15,6 +15,7 @@
 
 using namespace std;
 
+
 struct SSLPacketHeader {
     uint8_t type;
     uint16_t version;
@@ -57,13 +58,19 @@ void output_ssl_certificate(BIO* bio) {
     int cert_len = len_buf[0]*256*256 + len_buf[1]*256 + len_buf[2];
     // get certificate payload from bio
     unsigned char* cert_buf = new unsigned char[cert_len];
-    int bytes_read_payload = BIO_read(bio, len_buf, cert_len);
+    int bytes_read_payload = BIO_read(bio, cert_buf, cert_len);
     // create a new certificate using X509 library
     const unsigned char* const_buf = cert_buf;
     X509* cert = d2i_X509(NULL, &const_buf, cert_len);
     // generate the certificate file
     if (cert != nullptr) {
-      generate_certificate(cert);
+      try {
+        generate_certificate(cert);
+      } catch (const exception& ex) {
+        cerr << "Error generating certificate file from X509*: " << ex.what() << endl;
+      }
+      
+      X509_free(cert); // free the cert resource
     }
     delete[] len_buf;
     delete[] cert_buf;
@@ -110,6 +117,15 @@ void processPacket(const u_char* packet, int packetLength, int loop_num, BIO* bi
   int handshakeType = *handshakeTypePtr;
   // cout << "reach place 2. loop_num: " << loop_num << ", handshakeType: " << handshakeType << endl;
   int handshakePacLen = *(sslPacket + 3) * 256 + *(sslPacket + 4);
+
+  if (handshakeType == 2) {
+    handshakeTypePtr += handshakePacLen;
+    if (*handshakeTypePtr + 0 != 22) return;
+    handshakeTypePtr += SSL_HEADER_LEN;
+    handshakeType = *handshakeTypePtr;
+    total_ssl_header_len += handshakePacLen;
+    // cout << "reach place 3. loop_num: " << loop_num << ", handshakeTypePtr: " << *handshakeTypePtr + 0 << endl;
+  }
   
   if (handshakeType == 11) {
     int certPayloadLen = *(handshakeTypePtr + 1) * 256 * 256 + *(handshakeTypePtr + 2) * 256 + *(handshakeTypePtr + 3) - 3;
