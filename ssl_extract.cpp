@@ -1,3 +1,14 @@
+/*
+Author: Chris Cheng 19/07/2023
+Steps to run:
+1. Install cpp pcap and openssl on your machine.
+2. [optional] If you want to open in vscode, adjust the c_cpp_properties.json file in .vscode if the compiler shows error. Then open the whole folder in vscode.
+3. To compile this file, type in terminal at the same folder as this file:
+  g++ -std=c++20 ssl_extract.cpp -lpcap -lssl -lcrypto -o ssl_extract.bin
+4. To run the compiled binary, type in terminal at the same folder:
+  ./ssl_extract.bin
+*/
+
 #define ETHERNET_HEADER_LEN 14
 #define SSL_HEADER_LEN 5
 #define HANDSHAKE_HEADER_LEN 7
@@ -149,4 +160,39 @@ void processPacket(const u_char* packet, int packetLength, int loop_num, BIO* bi
       }
     }
   }
+}
+
+int extract_ssl() {
+  pcap_t* pcapHandle;
+  char errbuf[PCAP_ERRBUF_SIZE];
+  // Open the PCAP file for reading
+  pcapHandle = pcap_open_offline(FILE_PATH, errbuf);
+  if (pcapHandle == nullptr) {
+      cerr << "Error opening PCAP file: " << errbuf << endl;
+      return 1;
+  }
+  // Loop through each packet in the PCAP file
+  struct pcap_pkthdr header;
+  const u_char* packet;
+  int loop_num = 1;
+  BIO* bio = BIO_new(BIO_s_mem());
+  int remained_cert_len = -1;
+  while ((packet = pcap_next(pcapHandle, &header)) != nullptr) {
+    // cout << "loop_num: " << loop_num << ", packet_len: " << header.len << endl;
+    try {  
+      processPacket(packet, header.len, loop_num, bio, remained_cert_len);
+    } catch (const std::exception& ex) {
+      // Catch any exception and print the error message
+      cerr << "Error processPacket() @ loop_num " << loop_num << ": " << ex.what() << endl;
+    }
+    ++loop_num;
+  }
+  BIO_free(bio);
+  // Close the PCAP file
+  pcap_close(pcapHandle);
+  return 0;
+}
+
+int main() {
+  extract_ssl();
 }
