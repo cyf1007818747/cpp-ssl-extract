@@ -39,3 +39,9 @@ Execute the compiled binary to start extracting certificates:
     Directory Issues: If you encounter errors related to the output directory, ensure that the certificates/ directory exists or modify the OUTPUT_CERTIFICATE_PATH to an existing directory.
 Permission Issues: Run the binary with sufficient permissions to access the PCAPNG file and write to the output directory.
 Dependency Issues: Verify that all required libraries are correctly installed and linked during compilation.
+
+## Demo
+
+This is what the folder 'certificates' is like after successfully extracting certificates from the pcapng file:
+
+![alt text](./demo-extracted-certificates.png)
